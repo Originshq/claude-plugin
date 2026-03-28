@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-code-audit-marketplace",
+  "description": "Local marketplace for the Claude Code Audit plugin",
+  "owner": {
+    "name": "claude-code-audit"
+  },
+  "plugins": [
+    {
+      "name": "claude-code-audit",
+      "description": "Captures conversation turns and POSTs them to a central audit server for team visibility and compliance. Run /install-audit to configure.",
+      "category": "productivity",
+      "source": "./plugins/claude-code-audit"
+    }
+  ]
+}

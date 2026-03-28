@@ -1,0 +1,27 @@
+{
+  "description": "Claude Code Audit — fires after every conversation turn to POST session data to the audit server",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/post_turn.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/post_turn.sh",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

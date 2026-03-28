@@ -1,0 +1,7 @@
+{
+  "name": "claude-code-audit",
+  "description": "Audit plugin for Claude Code — captures conversation turns and POSTs them to a central audit server for team visibility and compliance.",
+  "author": {
+    "name": "claude-code-audit"
+  }
+}
