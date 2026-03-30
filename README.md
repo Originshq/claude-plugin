@@ -35,16 +35,19 @@ Or to make it available across all projects, add to `~/.claude/settings.json`:
 
 ### 3. Configure credentials
 
-Run the `/install-audit` slash command in Claude Code:
+Run the install script from the plugin directory:
 
-```
-/install-audit --server https://your-audit-server.example.com --key cca_your_key_here --developer your-username
+```bash
+bash plugins/claude-code-audit/hooks/install.sh \
+  --server https://your-audit-server.example.com \
+  --key cca_your_key_here \
+  --developer your-username
 ```
 
 This writes the following exports to your shell profile (`~/.zshrc` or `~/.bashrc`):
 
 ```bash
-# Claude Code Audit (added by install-audit)
+# Claude Code Audit (added by install.sh)
 export CLAUDE_AUDIT_SERVER="https://your-audit-server.example.com"
 export CLAUDE_AUDIT_API_KEY="cca_your_key_here"
 export CLAUDE_AUDIT_DEVELOPER_ID="your-username"
@@ -92,10 +95,11 @@ Or add it to `~/.claude/settings.json` to persist across projects:
 
 **Step 4 — Configure your audit server credentials**
 
-Run this slash command inside any Claude Code session:
-
-```
-/install-audit --server https://your-audit-server.example.com --key cca_your_key_here --developer your-username
+```bash
+bash ~/claude-plugin/plugins/claude-code-audit/hooks/install.sh \
+  --server https://your-audit-server.example.com \
+  --key cca_your_key_here \
+  --developer your-username
 ```
 
 **Step 5 — Reload your shell**
@@ -132,12 +136,10 @@ plugin/
     └── claude-code-audit/
         ├── .claude-plugin/
         │   └── plugin.json       # Plugin metadata
-        ├── hooks/
-        │   ├── hooks.json        # Hook registrations (Stop + SubagentStop)
-        │   └── post_turn.sh      # Hook script — reads JSONL, builds payload, POSTs
-        └── skills/
-            └── install-audit/
-                └── SKILL.md      # /install-audit slash command
+        └── hooks/
+            ├── hooks.json        # Hook registrations (Stop + SubagentStop)
+            ├── install.sh        # Credential installer — writes env vars to shell profile
+            └── post_turn.sh      # Hook script — reads JSONL, builds payload, POSTs
 ```
 
 ## Prerequisites
@@ -145,56 +147,6 @@ plugin/
 - Claude Code CLI installed
 - An audit server exposing `POST /api/ingest` (accepts `X-Api-Key` header)
 - `bash`, `python3`, and `curl` available in your shell
-
-## Installation
-
-### 1. Add the marketplace
-
-Inside a Claude Code session:
-
-```
-/plugin marketplace add https://github.com/Originshq/claude-plugin.git
-```
-
-Or to make it available across all projects, add to `~/.claude/settings.json`:
-
-```json
-{
-  "extraKnownMarketplaces": {
-    "claude-code-audit-marketplace": {
-      "source": {
-        "source": "github",
-        "repo": "Originshq/claude-plugin"
-      }
-    }
-  }
-}
-```
-
-### 2. Install the plugin
-
-```
-/plugin install claude-code-audit@claude-code-audit-marketplace
-```
-
-### 3. Configure credentials
-
-Run the `/install-audit` slash command in Claude Code:
-
-```
-/install-audit --server https://your-audit-server.example.com --key cca_your_key_here --developer your-username
-```
-
-This writes the following exports to your shell profile (`~/.zshrc` or `~/.bashrc`):
-
-```bash
-# Claude Code Audit (added by install-audit)
-export CLAUDE_AUDIT_SERVER="https://your-audit-server.example.com"
-export CLAUDE_AUDIT_API_KEY="cca_your_key_here"
-export CLAUDE_AUDIT_DEVELOPER_ID="your-username"
-```
-
-Restart your terminal or run `source ~/.zshrc` to apply.
 
 ## Environment variables
 
