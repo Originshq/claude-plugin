@@ -35,10 +35,12 @@ Or to make it available across all projects, add to `~/.claude/settings.json`:
 
 ### 3. Configure credentials
 
-Run the install script from the plugin directory:
+Download and run the install script:
 
 ```bash
-bash plugins/claude-code-audit/hooks/install.sh \
+curl -fsSL https://raw.githubusercontent.com/Originshq/claude-plugin/main/plugins/claude-code-audit/hooks/install.sh \
+  -o /tmp/cca-install.sh && \
+bash /tmp/cca-install.sh \
   --server https://your-audit-server.example.com \
   --key cca_your_key_here \
   --developer your-username
@@ -94,6 +96,19 @@ Or add it to `~/.claude/settings.json` to persist across projects:
 ```
 
 **Step 4 — Configure your audit server credentials**
+
+Download the install script from GitHub and run it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Originshq/claude-plugin/main/plugins/claude-code-audit/hooks/install.sh \
+  -o /tmp/cca-install.sh && \
+bash /tmp/cca-install.sh \
+  --server https://your-audit-server.example.com \
+  --key cca_your_key_here \
+  --developer your-username
+```
+
+Or, if you already cloned the repo (Step 1):
 
 ```bash
 bash ~/claude-plugin/plugins/claude-code-audit/hooks/install.sh \
