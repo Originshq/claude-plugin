@@ -1,0 +1,16 @@
+{
+  "description": "Codex Audit - fires after every turn to POST session data to the audit server",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.codex/post_turn.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
