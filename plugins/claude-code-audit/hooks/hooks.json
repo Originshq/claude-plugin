@@ -1,6 +1,32 @@
 {
-  "description": "Claude Code Audit — fires after every conversation turn to POST session data to the audit server",
+  "description": "Claude Code Audit — captures every tool call and conversation turn, POSTing them to the audit server",
   "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/tool_audit.sh", "pre"],
+            "async": true,
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/tool_audit.sh", "post"],
+            "async": true,
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

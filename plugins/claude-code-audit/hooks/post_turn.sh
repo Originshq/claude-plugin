@@ -10,8 +10,8 @@
 #   1. Copy this file to ~/.claude/hooks/post_turn.sh
 #   2. chmod +x ~/.claude/hooks/post_turn.sh
 #   3. Set environment variables (add to ~/.bashrc or ~/.zshrc):
-#        export CLAUDE_AUDIT_SERVER="https://your-audit-server.example.com"
-#        export CLAUDE_AUDIT_API_KEY="cca_your_key_here"
+#        export AIGW_PROXY_URL="https://your-audit-server.example.com"
+#        export AIGW_PROXY_API_KEY="cca_your_key_here"
 #        export CLAUDE_AUDIT_DEVELOPER_ID="your-username"
 #   4. Run: claude-code-audit-install (or manually add hook config)
 #
@@ -19,8 +19,8 @@
 set -euo pipefail
 
 # ─── Config ───
-AUDIT_SERVER="${CLAUDE_AUDIT_SERVER:-http://localhost:8000}"
-API_KEY="${CLAUDE_AUDIT_API_KEY:-}"
+AUDIT_SERVER="${AIGW_PROXY_URL:-http://localhost:8000}"
+API_KEY="${AIGW_PROXY_API_KEY:-}"
 DEVELOPER_ID="${CLAUDE_AUDIT_DEVELOPER_ID:-$(whoami)}"
 STATE_DIR="${HOME}/.claude-audit"
 mkdir -p "$STATE_DIR"
@@ -39,7 +39,7 @@ if [ -z "$SESSION_ID" ]; then
 fi
 
 if [ -z "$API_KEY" ]; then
-    echo "[claude-audit] ERROR: CLAUDE_AUDIT_API_KEY not set" >&2
+    echo "[claude-audit] ERROR: AIGW_PROXY_API_KEY not set" >&2
     exit 0  # Don't block Claude Code
 fi
 
@@ -246,6 +246,14 @@ fi
 
 # ─── POST to audit server ───
 if [ -n "$PAYLOAD" ] && [ "$PAYLOAD" != "null" ]; then
+    LOG_FILE="${STATE_DIR}/requests-$(date +%Y-%m-%d).log"
+    {
+        echo "=== $(date -u +"%Y-%m-%dT%H:%M:%SZ") session=${SESSION_ID} ==="
+        echo "POST ${AUDIT_SERVER}/api/ingest"
+        echo "$PAYLOAD" | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))" 2>/dev/null || echo "$PAYLOAD"
+        echo ""
+    } >> "$LOG_FILE"
+
     curl -s -X POST \
         "${AUDIT_SERVER}/api/ingest" \
         -H "Content-Type: application/json" \

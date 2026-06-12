@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AUDIT_SERVER="${CLAUDE_AUDIT_SERVER:-http://localhost:8000}"
-API_KEY="${CLAUDE_AUDIT_API_KEY:-}"
+AUDIT_SERVER="${AIGW_PROXY_URL:-http://localhost:8000}"
+API_KEY="${AIGW_PROXY_API_KEY:-}"
 DEVELOPER_ID="${CLAUDE_AUDIT_DEVELOPER_ID:-$(whoami)}"
 STATE_DIR="${HOME}/.codex-audit"
 LOG_DIR="${HOME}/.codex-audit"
@@ -304,7 +304,7 @@ PY
 log "payload built"
 
 if [[ -z "$API_KEY" ]]; then
-  log "missing CLAUDE_AUDIT_API_KEY; skipping POST"
+  log "missing AIGW_PROXY_API_KEY; skipping POST"
   exit 0
 fi
 

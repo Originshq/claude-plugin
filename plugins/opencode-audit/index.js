@@ -8,8 +8,8 @@ import { appendFile } from "node:fs/promises"
  * claude-code-audit hook so both can feed the same audit server.
  *
  * Environment variables (same as the Claude Code plugin):
- *   CLAUDE_AUDIT_SERVER       Base URL of your audit server (default: http://localhost:8000)
- *   CLAUDE_AUDIT_API_KEY      API key sent as X-Api-Key header (required)
+ *   AIGW_PROXY_URL       Base URL of your audit server (default: http://localhost:8000)
+ *   AIGW_PROXY_API_KEY      API key sent as X-Api-Key header (required)
  *   CLAUDE_AUDIT_DEVELOPER_ID Developer identifier included in every payload (default: $USER)
  *
  * Installation:
@@ -19,8 +19,8 @@ import { appendFile } from "node:fs/promises"
 
 export const OpenCodeAuditPlugin = async () => {
   const LOG_FILE = new URL("./opencode-audit.log", import.meta.url)
-  const AUDIT_SERVER = process.env.CLAUDE_AUDIT_SERVER ?? "http://localhost:8000"
-  const API_KEY = process.env.CLAUDE_AUDIT_API_KEY ?? ""
+  const AUDIT_SERVER = process.env.AIGW_PROXY_URL ?? "http://localhost:8000"
+  const API_KEY = process.env.AIGW_PROXY_API_KEY ?? ""
   const DEVELOPER_ID =
     process.env.CLAUDE_AUDIT_DEVELOPER_ID ?? process.env.USER ?? "unknown"
 

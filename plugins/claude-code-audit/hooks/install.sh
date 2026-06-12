@@ -50,8 +50,8 @@ else
   echo "Could not find ~/.zshrc or ~/.bashrc."
   echo "Please add the following to your shell config manually:"
   echo ""
-  echo "  export CLAUDE_AUDIT_SERVER=\"$SERVER\""
-  echo "  export CLAUDE_AUDIT_API_KEY=\"$API_KEY\""
+  echo "  export AIGW_PROXY_URL=\"$SERVER\""
+  echo "  export AIGW_PROXY_API_KEY=\"$API_KEY\""
   echo "  export CLAUDE_AUDIT_DEVELOPER_ID=\"$DEVELOPER\""
   exit 1
 fi
@@ -68,8 +68,8 @@ fi
 cat >> "$SHELL_RC" <<EOF
 
 # Claude Code Audit (added by install.sh)
-export CLAUDE_AUDIT_SERVER="$SERVER"
-export CLAUDE_AUDIT_API_KEY="$API_KEY"
+export AIGW_PROXY_URL="$SERVER"
+export AIGW_PROXY_API_KEY="$API_KEY"
 export CLAUDE_AUDIT_DEVELOPER_ID="$DEVELOPER"
 EOF
 

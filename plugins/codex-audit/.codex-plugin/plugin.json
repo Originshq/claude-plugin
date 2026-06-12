@@ -1,6 +1,6 @@
 {
   "name": "codex-audit",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Audit plugin for Codex that captures conversation turns and posts them to a central audit server for team visibility and compliance.",
   "author": {
     "name": "codex-audit"
