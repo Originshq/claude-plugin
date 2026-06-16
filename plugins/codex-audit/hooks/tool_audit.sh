@@ -70,10 +70,58 @@ transcript_path = data.get("transcript_path")
 tool_category = "unknown"
 tool_meta = {}
 
-if tool_name == "Bash":
+if tool_name.startswith("mcp__"):
+    parts = tool_name.split("__", 2)
+    if len(parts) == 3:
+        tool_category = "mcp"
+        tool_meta["mcp_server"] = parts[1]
+        tool_meta["mcp_tool"] = parts[2]
+elif tool_name == "Bash":
     tool_category = "code_execution"
     if "command" in tool_input:
         tool_meta["bash_command"] = tool_input["command"]
+elif tool_name == "Write":
+    tool_category = "file_write"
+    if "file_path" in tool_input:
+        tool_meta["file_path"] = tool_input["file_path"]
+elif tool_name == "Edit":
+    tool_category = "file_edit"
+    if "file_path" in tool_input:
+        tool_meta["file_path"] = tool_input["file_path"]
+elif tool_name == "Read":
+    tool_category = "file_read"
+    if "file_path" in tool_input:
+        tool_meta["file_path"] = tool_input["file_path"]
+elif tool_name == "Glob":
+    tool_category = "file_search"
+    if "pattern" in tool_input:
+        tool_meta["search_pattern"] = tool_input["pattern"]
+    if "path" in tool_input:
+        tool_meta["search_path"] = tool_input["path"]
+elif tool_name == "Grep":
+    tool_category = "file_search"
+    if "pattern" in tool_input:
+        tool_meta["search_pattern"] = tool_input["pattern"]
+    if "path" in tool_input:
+        tool_meta["search_path"] = tool_input["path"]
+elif tool_name == "WebFetch":
+    tool_category = "web"
+    if "url" in tool_input:
+        tool_meta["web_url"] = tool_input["url"]
+elif tool_name == "WebSearch":
+    tool_category = "web"
+    if "query" in tool_input:
+        tool_meta["web_query"] = tool_input["query"]
+elif tool_name == "Agent":
+    tool_category = "agent"
+    if "subagent_type" in tool_input:
+        tool_meta["agent_type"] = tool_input["subagent_type"]
+    if "description" in tool_input:
+        tool_meta["agent_description"] = tool_input["description"]
+elif tool_name == "AskUserQuestion":
+    tool_category = "interaction"
+elif tool_name == "ExitPlanMode":
+    tool_category = "planning"
 
 tool_output = data.get("tool_response", None) if phase == "post" else None
 
