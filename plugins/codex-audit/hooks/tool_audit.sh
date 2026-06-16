@@ -11,7 +11,6 @@
 #   AIGW_PROXY_API_KEY         API key sent as X-Api-Key header
 #   CLAUDE_AUDIT_DEVELOPER_ID  Developer identifier (default: whoami)
 #   CODEX_AUDIT_DEBUG          When 1, append debug lines to ~/.codex-audit/codex-audit.log
-#   CODEX_AUDIT_DRY_RUN        When 1, print the payload to stdout and skip the POST (testing)
 #
 
 set -euo pipefail
@@ -22,7 +21,6 @@ AUDIT_SERVER="${AIGW_PROXY_URL:-http://localhost:8000}"
 API_KEY="${AIGW_PROXY_API_KEY:-}"
 DEVELOPER_ID="${CLAUDE_AUDIT_DEVELOPER_ID:-$(whoami)}"
 DEBUG="${CODEX_AUDIT_DEBUG:-}"
-DRY_RUN="${CODEX_AUDIT_DRY_RUN:-}"
 LOG_FILE="${HOME}/.codex-audit/codex-audit.log"
 
 log() {
@@ -31,8 +29,8 @@ log() {
     printf '[%s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$LOG_FILE" 2>/dev/null || true
 }
 
-# Config gate: not configured and not a dry run -> skip silently.
-if [ -z "$API_KEY" ] && [ "$DRY_RUN" != "1" ]; then
+# Config gate: not configured -> skip silently.
+if [ -z "$API_KEY" ]; then
     log "missing AIGW_PROXY_API_KEY; skipping"
     exit 0
 fi
@@ -102,10 +100,5 @@ payload.update(tool_meta)
 print(json.dumps(payload))
 PYEOF
 )
-
-if [ "$DRY_RUN" = "1" ]; then
-    printf '%s\n' "$PAYLOAD"
-    exit 0
-fi
 
 exit 0
