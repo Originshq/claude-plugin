@@ -1,6 +1,30 @@
 {
-  "description": "Codex Audit - fires after every turn to POST session data to the audit server",
+  "description": "Codex Audit — captures Bash tool calls and conversation turns, POSTing them to the audit server",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.codex/tool_audit.sh\" pre",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$HOME/.codex/tool_audit.sh\" post",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
