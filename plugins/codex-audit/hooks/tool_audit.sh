@@ -2,13 +2,16 @@
 #
 # Codex Audit — Tool Call Hook Script
 #
-# Fires on PreToolUse ($1=pre) and PostToolUse ($1=post) for every tool call.
-# Reads the hook JSON from stdin and POSTs a structured audit record to the
-# central audit server.
+# Fires on PreToolUse ($1=pre), PostToolUse ($1=post), SessionStart ($1=session),
+# and UserPromptSubmit ($1=prompt). Reads the hook JSON from stdin and POSTs a
+# structured audit record to the central audit server.
 #
-# Environment variables (same as post_turn.sh):
-#   AIGW_PROXY_URL      Base URL of the audit server (default: http://localhost:8000)
-#   AIGW_PROXY_API_KEY     API key sent as X-Api-Key header
+# When bundled as a plugin, $PLUGIN_ROOT is set by Codex to the plugin root.
+# For manual installs the scripts live in $HOME/.codex/ instead.
+#
+# Environment variables:
+#   AIGW_PROXY_URL             Base URL of the audit server (default: http://localhost:8000)
+#   AIGW_PROXY_API_KEY         API key sent as X-Api-Key header
 #   CLAUDE_AUDIT_DEVELOPER_ID  Developer identifier (default: whoami)
 #
 
@@ -45,13 +48,46 @@ except Exception:
     sys.exit(0)
 
 session_id = data.get("session_id", "")
-tool_name = data.get("tool_name", "")
-tool_input = data.get("tool_input", {})
-tool_use_id = data.get("tool_use_id", "")
 cwd = data.get("cwd", "")
 model = data.get("model", "")
 turn_id = data.get("turn_id", "")
 transcript_path = data.get("transcript_path")
+
+# SessionStart and UserPromptSubmit have a different shape — handle them early.
+if phase == "session":
+    payload = {
+        "session_id": session_id,
+        "developer_id": developer_id,
+        "event_type": "session_start",
+        "source": data.get("source", ""),
+        "cwd": cwd,
+        "model": model,
+        "permission_mode": data.get("permission_mode", ""),
+    }
+    if isinstance(transcript_path, str) and transcript_path:
+        payload["transcript_path"] = transcript_path
+    print(json.dumps(payload))
+    sys.exit(0)
+
+if phase == "prompt":
+    payload = {
+        "session_id": session_id,
+        "developer_id": developer_id,
+        "event_type": "user_prompt",
+        "turn_id": turn_id,
+        "prompt": data.get("prompt", ""),
+        "cwd": cwd,
+        "model": model,
+        "permission_mode": data.get("permission_mode", ""),
+    }
+    if isinstance(transcript_path, str) and transcript_path:
+        payload["transcript_path"] = transcript_path
+    print(json.dumps(payload))
+    sys.exit(0)
+
+tool_name = data.get("tool_name", "")
+tool_input = data.get("tool_input", {})
+tool_use_id = data.get("tool_use_id", "")
 
 # Per-tool enrichment: category + key resource fields for audit filtering
 tool_category = "unknown"
@@ -67,6 +103,11 @@ elif tool_name == "Bash":
     tool_category = "code_execution"
     if "command" in tool_input:
         tool_meta["bash_command"] = tool_input["command"]
+elif tool_name == "apply_patch":
+    # apply_patch is the canonical tool_name for file edits; matcher aliases are Edit/Write
+    tool_category = "file_edit"
+    if "command" in tool_input:
+        tool_meta["patch_command"] = tool_input["command"][:500]
 elif tool_name == "Write":
     tool_category = "file_write"
     if "file_path" in tool_input:
@@ -137,9 +178,14 @@ PYEOF
 )
 
 if [ -n "$PAYLOAD" ] && [ "$PAYLOAD" != "null" ]; then
+    case "$PHASE" in
+        session) ENDPOINT="${AUDIT_SERVER}/api/ingest/session" ;;
+        prompt)  ENDPOINT="${AUDIT_SERVER}/api/ingest/prompt" ;;
+        *)       ENDPOINT="${AUDIT_SERVER}/api/ingest/tool" ;;
+    esac
     {
         curl -s -X POST \
-            "${AUDIT_SERVER}/api/ingest/tool" \
+            "$ENDPOINT" \
             -H "Content-Type: application/json" \
             -H "X-Api-Key: ${API_KEY}" \
             -d "$PAYLOAD" \
