@@ -46,18 +46,18 @@ CODEX_DIR="$HOME/.codex"
 CONFIG_TOML="$CODEX_DIR/config.toml"
 mkdir -p "$CODEX_DIR"
 
-# 1. Enable the experimental Codex hooks feature flag (idempotent).
-if [[ -f "$CONFIG_TOML" ]] && grep -qE '^[[:space:]]*codex_hooks[[:space:]]*=[[:space:]]*true' "$CONFIG_TOML"; then
-  echo "codex_hooks already enabled in $CONFIG_TOML"
+# 1. Enable the Codex hooks feature flag (idempotent).
+# The canonical key is "hooks"; "codex_hooks" is a deprecated alias.
+if [[ -f "$CONFIG_TOML" ]] && grep -qE '^[[:space:]]*(hooks|codex_hooks)[[:space:]]*=[[:space:]]*true' "$CONFIG_TOML"; then
+  echo "hooks already enabled in $CONFIG_TOML"
 elif [[ -f "$CONFIG_TOML" ]] && grep -qE '^[[:space:]]*\[features\]' "$CONFIG_TOML"; then
-  # Note: [ \t] (not [[:space:]]) so the match works under mawk as well as gawk.
   TMP="$(mktemp)"
-  awk '1; /^[ \t]*\[features\]/{print "codex_hooks = true"}' "$CONFIG_TOML" > "$TMP"
+  awk '1; /^[ \t]*\[features\]/{print "hooks = true"}' "$CONFIG_TOML" > "$TMP"
   mv "$TMP" "$CONFIG_TOML"
-  echo "Added codex_hooks = true under [features] in $CONFIG_TOML"
+  echo "Added hooks = true under [features] in $CONFIG_TOML"
 else
-  printf '\n[features]\ncodex_hooks = true\n' >> "$CONFIG_TOML"
-  echo "Enabled [features] codex_hooks = true in $CONFIG_TOML"
+  printf '\n[features]\nhooks = true\n' >> "$CONFIG_TOML"
+  echo "Enabled [features] hooks = true in $CONFIG_TOML"
 fi
 
 # 2. Copy hook scripts into ~/.codex and make them executable.
@@ -66,15 +66,83 @@ cp "$SCRIPT_DIR/tool_audit.sh" "$CODEX_DIR/tool_audit.sh"
 chmod +x "$CODEX_DIR/post_turn.sh" "$CODEX_DIR/tool_audit.sh"
 echo "Installed post_turn.sh and tool_audit.sh to $CODEX_DIR"
 
-# 3. Install hooks.json without clobbering an existing one.
+# 3. Write hooks.json pointing at the manually-installed scripts in $HOME/.codex/.
+# The plugin's hooks/hooks.json uses $PLUGIN_ROOT which is only set in plugin mode;
+# for a manual install we generate a standalone version with absolute paths instead.
 HOOKS_DEST="$CODEX_DIR/hooks.json"
 if [[ -f "$HOOKS_DEST" ]]; then
   echo ""
   echo "WARNING: $HOOKS_DEST already exists — not overwriting."
-  echo "Merge the PreToolUse / PostToolUse / Stop blocks from:"
-  echo "  $SCRIPT_DIR/hooks.json"
+  echo "Merge the following blocks into $HOOKS_DEST manually:"
+  echo "  SessionStart / PreToolUse / PostToolUse / UserPromptSubmit / Stop"
 else
-  cp "$SCRIPT_DIR/hooks.json" "$HOOKS_DEST"
+  cat > "$HOOKS_DEST" <<HOOKSJSON
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CODEX_DIR/tool_audit.sh\" session",
+            "timeout": 10,
+            "statusMessage": "Codex Audit: logging session start"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CODEX_DIR/tool_audit.sh\" pre",
+            "timeout": 10,
+            "statusMessage": "Codex Audit: pre-tool check"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CODEX_DIR/tool_audit.sh\" post",
+            "timeout": 10,
+            "statusMessage": "Codex Audit: post-tool log"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CODEX_DIR/tool_audit.sh\" prompt",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CODEX_DIR/post_turn.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+HOOKSJSON
   echo "Installed $HOOKS_DEST"
 fi
 
@@ -115,5 +183,5 @@ echo "Run the following to apply immediately:"
 echo "  source $SHELL_RC"
 echo ""
 echo ""
-echo "Hooks installed. PreToolUse/PostToolUse capture Bash tool calls; Stop captures turns."
+echo "Hooks installed. SessionStart/PreToolUse/PostToolUse/UserPromptSubmit/Stop are active."
 echo "Restart Codex for the changes to take effect."

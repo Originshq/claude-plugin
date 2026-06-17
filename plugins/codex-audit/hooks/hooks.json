@@ -1,25 +1,50 @@
 {
-  "description": "Codex Audit — captures Bash tool calls and conversation turns, POSTing them to the audit server",
   "hooks": {
-    "PreToolUse": [
+    "SessionStart": [
       {
-        "matcher": "Bash",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$HOME/.codex/tool_audit.sh\" pre",
-            "timeout": 10
+            "command": "bash \"$PLUGIN_ROOT/hooks/tool_audit.sh\" session",
+            "timeout": 10,
+            "statusMessage": "Codex Audit: logging session start"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$PLUGIN_ROOT/hooks/tool_audit.sh\" pre",
+            "timeout": 10,
+            "statusMessage": "Codex Audit: pre-tool check"
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$HOME/.codex/tool_audit.sh\" post",
+            "command": "bash \"$PLUGIN_ROOT/hooks/tool_audit.sh\" post",
+            "timeout": 10,
+            "statusMessage": "Codex Audit: post-tool log"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$PLUGIN_ROOT/hooks/tool_audit.sh\" prompt",
             "timeout": 10
           }
         ]
@@ -30,8 +55,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$HOME/.codex/post_turn.sh\"",
-            "timeout": 15
+            "command": "bash \"$PLUGIN_ROOT/hooks/post_turn.sh\"",
+            "timeout": 30
           }
         ]
       }
