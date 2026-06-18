@@ -109,7 +109,10 @@ elif tool_name == "AskUserQuestion":
 elif tool_name == "ExitPlanMode":
     tool_category = "planning"
 
-tool_output = data.get("tool_response", None) if phase == "post" else None
+tool_output_raw = data.get("tool_response", None) if phase == "post" else None
+if tool_output_raw is not None and not isinstance(tool_output_raw, str):
+    tool_output_raw = json.dumps(tool_output_raw)
+tool_output = tool_output_raw
 
 payload = {
     "session_id": session_id,
