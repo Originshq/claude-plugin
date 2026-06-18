@@ -24,7 +24,7 @@ fi
 
 log "received hook input"
 
-PAYLOAD="$(HOOK_INPUT="$HOOK_INPUT" DEVELOPER_ID="$DEVELOPER_ID" STATE_DIR="$STATE_DIR" python3 <<'PY'
+PAYLOAD="$(HOOK_INPUT="$HOOK_INPUT" DEVELOPER_ID="$DEVELOPER_ID" STATE_DIR="$STATE_DIR" SHELL_PWD="$PWD" python3 <<'PY'
 import json
 import os
 from pathlib import Path
@@ -40,7 +40,17 @@ except Exception:
 
 session_id = data.get("session_id") or ""
 turn_id = data.get("turn_id") or ""
-cwd = data.get("cwd") or ""
+raw_cwd = data.get("cwd") or ""
+shell_pwd = os.environ.get("SHELL_PWD", "")
+if raw_cwd and os.path.isabs(os.path.expanduser(raw_cwd)):
+    cwd = os.path.abspath(os.path.expanduser(raw_cwd))
+elif shell_pwd and os.path.isabs(shell_pwd):
+    cwd = shell_pwd
+elif raw_cwd:
+    base = shell_pwd if shell_pwd else os.getcwd()
+    cwd = os.path.abspath(os.path.join(base, raw_cwd))
+else:
+    cwd = shell_pwd or os.getcwd()
 transcript_path = data.get("transcript_path")
 model = data.get("model") or ""
 hook_event_name = data.get("hook_event_name") or "Stop"
@@ -96,6 +106,18 @@ def save_offset(path, value):
     except Exception:
         pass
 
+def load_token_state(path):
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return {"input": 0, "output": 0, "cache": 0}
+
+def save_token_state(path, value):
+    try:
+        path.write_text(json.dumps(value))
+    except Exception:
+        pass
+
 messages = []
 state = {
     "tools_used": [],
@@ -115,14 +137,18 @@ def extract_path_for_session(session_id):
     if not root.exists():
         return None
 
-    for candidate in root.glob(f"**/*{session_id}*.jsonl"):
+    for candidate in sorted(root.glob("**/*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
         if candidate.is_file():
             return str(candidate)
     return None
 
 offset_file = state_dir / f"{session_id}.offset" if session_id else None
+token_state_file = state_dir / f"{session_id}.tokens" if session_id else None
 last_offset = load_offset(offset_file) if offset_file and offset_file.exists() else 0
+prev_token_state = load_token_state(token_state_file) if token_state_file and token_state_file.exists() else {"input": 0, "output": 0, "cache": 0}
 new_offset = last_offset
+last_cumulative = {"input": 0, "output": 0, "cache": 0}
+found_token_count = []  # used as mutable flag inside nested function
 
 transcript_candidate = transcript_path if isinstance(transcript_path, str) and transcript_path else extract_path_for_session(session_id)
 
@@ -206,18 +232,34 @@ if transcript_candidate and os.path.exists(transcript_candidate):
             return
 
         timestamp = entry.get("timestamp", "")
+        entry_type = entry.get("type", "")
+
+        # Codex CLI token_count events: cumulative totals across the session
+        if entry_type == "event_msg":
+            ep = entry.get("payload", {})
+            if isinstance(ep, dict) and ep.get("type") == "token_count":
+                info = ep.get("info", {})
+                usage = info.get("total_token_usage", {})
+                last_cumulative["input"] = usage.get("input_tokens", 0)
+                last_cumulative["output"] = usage.get("output_tokens", 0)
+                last_cumulative["cache"] = usage.get("cached_input_tokens", 0)
+                found_token_count.append(True)
+                if entry.get("model") or ep.get("model"):
+                    state["model_name"] = entry.get("model") or ep.get("model") or state["model_name"]
+            return
+
         process_payload(entry.get("payload", {}), timestamp)
 
         msg_obj = entry.get("message", {}) if isinstance(entry, dict) else {}
         msg_role = msg_obj.get("role", "") if isinstance(msg_obj, dict) else ""
 
         is_user = (
-            entry.get("type") in ("human", "user")
+            entry_type in ("human", "user")
             or entry.get("role") == "user"
             or msg_role == "user"
         )
         is_assistant = (
-            entry.get("type") == "assistant"
+            entry_type == "assistant"
             or entry.get("role") == "assistant"
             or msg_role == "assistant"
         )
@@ -237,12 +279,6 @@ if transcript_candidate and os.path.exists(transcript_candidate):
                             })
                 else:
                     content = extract_text(raw_content)
-
-                usage = msg_content.get("usage", {})
-                state["total_input"] += usage.get("input_tokens", 0)
-                state["total_output"] += usage.get("output_tokens", 0)
-                state["total_cache"] += usage.get("cache_read_input_tokens", usage.get("cache_read_tokens", 0))
-
                 if msg_content.get("model"):
                     state["model_name"] = msg_content.get("model", state["model_name"])
             else:
@@ -254,7 +290,7 @@ if transcript_candidate and os.path.exists(transcript_candidate):
                 append_assistant(content, entry.get("timestamp", ""))
             return
 
-        if entry.get("type") in ("subagent", "task_create", "TaskCreate"):
+        if entry_type in ("subagent", "task_create", "TaskCreate"):
             state["subagents"] += 1
 
     for line in transcript_lines[last_offset:]:
@@ -267,6 +303,13 @@ if transcript_candidate and os.path.exists(transcript_candidate):
             continue
         process_entry(entry)
     new_offset = len(transcript_lines)
+
+    if found_token_count:
+        state["total_input"] = max(0, last_cumulative["input"] - prev_token_state["input"])
+        state["total_output"] = max(0, last_cumulative["output"] - prev_token_state["output"])
+        state["total_cache"] = max(0, last_cumulative["cache"] - prev_token_state["cache"])
+        if token_state_file:
+            save_token_state(token_state_file, last_cumulative)
 
     if offset_file:
         save_offset(offset_file, new_offset)
@@ -283,7 +326,7 @@ payload = {
     "developer_id": developer_id,
     "event_type": hook_event_name,
     "project_path": cwd,
-    "project_name": os.path.basename(cwd) if cwd else "",
+    "project_name": cwd.replace("/", "-"),
     "model": state["model_name"],
     "turn_id": turn_id,
     "transcript_path": transcript_path,
@@ -308,7 +351,7 @@ if [[ -z "$API_KEY" ]]; then
   exit 0
 fi
 
-if curl -sS --fail \
+CURL_RESPONSE="$(curl -sS --fail \
   -X POST \
   "$AUDIT_SERVER/api/ingest" \
   -H "Content-Type: application/json" \
@@ -316,10 +359,15 @@ if curl -sS --fail \
   -d "$PAYLOAD" \
   --connect-timeout 5 \
   --max-time 10 \
-  >/dev/null 2>&1; then
+  2>&1)"
+CURL_EXIT=$?
+
+if [[ $CURL_EXIT -eq 0 ]]; then
   log "POST succeeded to ${AUDIT_SERVER}/api/ingest"
 else
-  log "POST failed to ${AUDIT_SERVER}/api/ingest"
+  log "POST failed to ${AUDIT_SERVER}/api/ingest (exit ${CURL_EXIT})"
+  log "payload sent: ${PAYLOAD}"
+  log "curl response: ${CURL_RESPONSE}"
 fi
 
 exit 0
