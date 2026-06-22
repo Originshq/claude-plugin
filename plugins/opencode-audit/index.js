@@ -3,21 +3,26 @@ import { appendFile } from "node:fs/promises"
 /**
  * OpenCode Audit Plugin
  *
- * Captures session data and POSTs it to a central audit server on every
- * session.idle event. Produces the same payload format as the Claude Code
- * claude-code-audit hook so both can feed the same audit server.
+ * Captures session data and tool input/output, POSTing structured audit records
+ * to a central audit server. Mirrors the codex-audit tool_audit.sh behaviour so
+ * both plugins can feed the same audit server.
  *
- * Environment variables (same as the Claude Code plugin):
- *   AIGW_PROXY_URL       Base URL of your audit server (default: http://localhost:8000)
- *   AIGW_PROXY_API_KEY      API key sent as X-Api-Key header (required)
+ * Environment variables (same as the codex-audit plugin):
+ *   AIGW_PROXY_URL            Base URL of the audit server (default: http://localhost:8000)
+ *   AIGW_PROXY_API_KEY        API key sent as X-Api-Key header (required)
  *   CLAUDE_AUDIT_DEVELOPER_ID Developer identifier included in every payload (default: $USER)
+ *
+ * Endpoints used:
+ *   POST /api/ingest/session  — session start
+ *   POST /api/ingest/tool     — tool pre/post events
+ *   POST /api/ingest          — session idle summary
  *
  * Installation:
  *   Project-level:  copy to .opencode/plugins/opencode-audit.js
  *   Global:         copy to ~/.config/opencode/plugins/opencode-audit.js
  */
 
-export const OpenCodeAuditPlugin = async () => {
+export const OpenCodeAuditPlugin = async ({ project, directory }) => {
   const LOG_FILE = new URL("./opencode-audit.log", import.meta.url)
   const AUDIT_SERVER = process.env.AIGW_PROXY_URL ?? "http://localhost:8000"
   const API_KEY = process.env.AIGW_PROXY_API_KEY ?? ""
@@ -36,6 +41,79 @@ export const OpenCodeAuditPlugin = async () => {
   }
 
   void log("plugin initialized")
+
+  function postAudit(endpoint, payload) {
+    if (!API_KEY) return
+    fetch(`${AUDIT_SERVER}${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Api-Key": API_KEY,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(10_000),
+    })
+      .then((res) => void log(`POST ${endpoint} status=${res.status}`))
+      .catch((err) =>
+        void log(
+          `POST ${endpoint} failed: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      )
+  }
+
+  function categorizeTool(toolName, toolArgs) {
+    let category = "unknown"
+    const meta = {}
+    const name = toolName ?? ""
+
+    if (name.startsWith("mcp__")) {
+      const parts = name.split("__", 3)
+      if (parts.length === 3) {
+        category = "mcp"
+        meta.mcp_server = parts[1]
+        meta.mcp_tool = parts[2]
+      }
+    } else if (name === "bash") {
+      category = "code_execution"
+      if (toolArgs?.command) meta.bash_command = toolArgs.command
+    } else if (name === "apply_patch") {
+      category = "file_edit"
+      if (toolArgs?.command) meta.patch_command = String(toolArgs.command).slice(0, 500)
+    } else if (name === "write") {
+      category = "file_write"
+      if (toolArgs?.filePath) meta.file_path = toolArgs.filePath
+    } else if (name === "edit") {
+      category = "file_edit"
+      if (toolArgs?.filePath) meta.file_path = toolArgs.filePath
+    } else if (name === "read") {
+      category = "file_read"
+      if (toolArgs?.filePath) meta.file_path = toolArgs.filePath
+    } else if (name === "glob") {
+      category = "file_search"
+      if (toolArgs?.pattern) meta.search_pattern = toolArgs.pattern
+      if (toolArgs?.path) meta.search_path = toolArgs.path
+    } else if (name === "grep") {
+      category = "file_search"
+      if (toolArgs?.pattern) meta.search_pattern = toolArgs.pattern
+      if (toolArgs?.path) meta.search_path = toolArgs.path
+    } else if (name === "webfetch") {
+      category = "web"
+      if (toolArgs?.url) meta.web_url = toolArgs.url
+    } else if (name === "websearch") {
+      category = "web"
+      if (toolArgs?.query) meta.web_query = toolArgs.query
+    } else if (name === "agent") {
+      category = "agent"
+      if (toolArgs?.subagent_type) meta.agent_type = toolArgs.subagent_type
+      if (toolArgs?.description) meta.agent_description = toolArgs.description
+    } else if (name === "askuserquestion") {
+      category = "interaction"
+    } else if (name === "exitplanmode") {
+      category = "planning"
+    }
+
+    return { category, meta }
+  }
 
   function getSession(sessionId) {
     if (!sessions.has(sessionId)) {
@@ -128,6 +206,10 @@ export const OpenCodeAuditPlugin = async () => {
     state.tokenSnapshotsByMessageId.set(messageId, current)
   }
 
+  function cwdToProjectName(cwd) {
+    return (cwd ?? "").replace(/\//g, "-").replace(/^-/, "")
+  }
+
   function updateProjectState(state, info) {
     if (!state.projectPath) {
       state.projectPath =
@@ -135,16 +217,89 @@ export const OpenCodeAuditPlugin = async () => {
     }
 
     if (!state.projectName) {
-      state.projectName = info?.title ?? info?.name ?? ""
+      const cwd = info?.path?.cwd ?? info?.directory ?? directory ?? ""
+      state.projectName = cwdToProjectName(cwd)
     }
   }
 
   return {
+    "tool.execute.before": async (input, output) => {
+      if (!API_KEY) return
+      const toolName = (input.tool ?? "").toLowerCase()
+      const toolArgs = output.args ?? input.args ?? {}
+      const sessionId = input.sessionId ?? input.session_id ?? input.sessionID ?? ""
+      const { category, meta } = categorizeTool(toolName, toolArgs)
+
+      void log(`tool.execute.before tool=${toolName}`)
+
+      postAudit("/api/ingest/tool", {
+        session_id: sessionId,
+        developer_id: DEVELOPER_ID,
+        event_type: "tool_use",
+        phase: "pre",
+        tool_name: toolName,
+        tool_category: category,
+        tool_input: toolArgs,
+        tool_output: null,
+        cwd: directory ?? "",
+        ...meta,
+      })
+    },
+
+    "tool.execute.after": async (input, output) => {
+      if (!API_KEY) return
+      const toolName = (input.tool ?? "").toLowerCase()
+      const toolArgs = input.args ?? {}
+      const sessionId = input.sessionId ?? input.session_id ?? input.sessionID ?? ""
+      const toolResultRaw = output?.result ?? input?.result ?? null
+      const toolOutput =
+        toolResultRaw === null
+          ? null
+          : typeof toolResultRaw === "string"
+            ? toolResultRaw
+            : JSON.stringify(toolResultRaw)
+      const { category, meta } = categorizeTool(toolName, toolArgs)
+
+      void log(`tool.execute.after tool=${toolName}`)
+
+      postAudit("/api/ingest/tool", {
+        session_id: sessionId,
+        developer_id: DEVELOPER_ID,
+        event_type: "tool_use",
+        phase: "post",
+        tool_name: toolName,
+        tool_category: category,
+        tool_input: toolArgs,
+        tool_output: toolOutput,
+        cwd: directory ?? "",
+        ...meta,
+      })
+    },
+
     event: async ({ event }) => {
       const props = event.properties ?? event
       void log(`event received: ${event.type}`)
 
-      if (event.type === "session.created" || event.type === "session.updated") {
+      if (event.type === "session.created") {
+        const info = props.info ?? props
+        const sessionId = info.id ?? info.sessionID ?? info.sessionId
+        if (!sessionId) return
+
+        updateProjectState(getSession(sessionId), info)
+
+        const sessionCwd = info.path?.cwd ?? directory ?? ""
+        postAudit("/api/ingest/session", {
+          session_id: sessionId,
+          developer_id: DEVELOPER_ID,
+          event_type: "session_start",
+          cwd: sessionCwd,
+          project_path: info.path?.root ?? sessionCwd,
+          project_name: cwdToProjectName(sessionCwd),
+        })
+        return
+      }
+
+      if (event.type === "session.updated") {
         const info = props.info ?? props
         const sessionId = info.id ?? info.sessionID ?? info.sessionId
         if (!sessionId) return
@@ -270,25 +425,7 @@ export const OpenCodeAuditPlugin = async () => {
           raw_event: event,
         }
 
-        fetch(`${AUDIT_SERVER}/api/ingest`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Api-Key": API_KEY,
-          },
-          body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(10_000),
-        })
-          .then((response) => {
-            void log(
-              `audit POST completed for session ${sessionId} status=${response.status}`,
-            )
-          })
-          .catch((error) => {
-            void log(
-              `audit POST failed for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
-            )
-          })
+        postAudit("/api/ingest", payload)
 
         sessions.delete(sessionId)
       }

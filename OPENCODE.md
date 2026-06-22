@@ -1,9 +1,9 @@
 # Claude Code Audit — OpenCode Plugin
 
-OpenCode equivalent of the `claude-code-audit` Claude Code plugin.
-It hooks into OpenCode's event system to capture session data and POST it to a central audit server.
+OpenCode equivalent of the `claude-code-audit` / `codex-audit` plugins.
+It hooks into OpenCode's event system to capture session data **and every tool call (input + output)**, posting structured audit records to a central audit server.
 
-The payload format is **identical** to the Claude Code plugin, so both can feed the same audit server.
+The payload format is **identical** to the codex-audit plugin so both can feed the same audit server.
 
 ---
 
@@ -11,12 +11,6 @@ The payload format is **identical** to the Claude Code plugin, so both can feed 
 
 ### 1. Copy the plugin
 
-**Project-level** (this project only):
-
-```bash
-mkdir -p .opencode/plugins
-cp plugins/opencode-audit/index.js .opencode/plugins/opencode-audit.js
-```
 
 **Global** (all projects):
 
@@ -25,26 +19,25 @@ mkdir -p ~/.config/opencode/plugins
 cp plugins/opencode-audit/index.js ~/.config/opencode/plugins/opencode-audit.js
 ```
 
+
+**Project-level** (this project only):
+
+```bash
+mkdir -p .opencode/plugins
+cp plugins/opencode-audit/index.js .opencode/plugins/opencode-audit.js
+```
+
 OpenCode loads all `.js` / `.ts` files from these directories automatically at startup — no further config needed.
 
 ---
 
 ### 2. Configure credentials
 
-**Option A — run the existing install script** (writes exports to `~/.zshrc` or `~/.bashrc`):
+Add the following exports to your shell profile (`~/.zshrc` or `~/.bashrc`):
 
 ```bash
-bash plugins/claude-code-audit/hooks/install.sh \
-  --server https://your-audit-server.example.com \
-  --key cca_your_key_here \
-  --developer your-username
-```
-
-**Option B — add to your shell profile manually**:
-
-```bash
-export CLAUDE_AUDIT_SERVER="https://your-audit-server.example.com"
-export CLAUDE_AUDIT_API_KEY="cca_your_key_here"
+export AIGW_PROXY_URL="https://your-audit-server.example.com"
+export AIGW_PROXY_API_KEY="cca_your_key_here"
 export CLAUDE_AUDIT_DEVELOPER_ID="your-username"
 ```
 
@@ -56,7 +49,7 @@ export CLAUDE_AUDIT_DEVELOPER_ID="your-username"
 source ~/.zshrc   # or ~/.bashrc
 ```
 
-The audit plugin is now active. Every `session.idle` event will POST session data to your audit server.
+The audit plugin is now active. Session start, every tool call, and every `session.idle` event will be posted to your audit server.
 
 ---
 
@@ -64,43 +57,86 @@ The audit plugin is now active. Every `session.idle` event will POST session dat
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `CLAUDE_AUDIT_SERVER` | Yes | `http://localhost:8000` | Base URL of your audit server |
-| `CLAUDE_AUDIT_API_KEY` | Yes | — | API key sent as `X-Api-Key` header |
-| `CLAUDE_AUDIT_DEVELOPER_ID` | No | `$USER` | Developer identifier in every payload |
+| `AIGW_PROXY_URL` | Yes | `http://localhost:8000` | Base URL of your audit server |
+| `AIGW_PROXY_API_KEY` | Yes | — | API key sent as `X-Api-Key` header |
+| `CLAUDE_AUDIT_DEVELOPER_ID` | No | `$USER` | Developer identifier included in every payload |
 
 ---
 
 ## How it works
 
-| Step | What happens |
-|---|---|
-| `message.updated` event | Plugin accumulates messages and token usage in memory, keyed by session ID |
-| `session.idle` event | Plugin POSTs the accumulated payload to `${CLAUDE_AUDIT_SERVER}/api/ingest` and clears state |
-| Errors | All fetch errors are silently swallowed — the plugin never blocks OpenCode |
-
----
-
-## Differences from the Claude Code plugin
-
-| | Claude Code | OpenCode |
+| Step | Event / Hook | What happens |
 |---|---|---|
-| Plugin format | Bash hook script | JavaScript/ES module |
-| Trigger event | `Stop` / `SubagentStop` | `session.idle` |
-| Data source | JSONL files on disk (`~/.claude/projects/…`) | In-memory event accumulation |
-| Offset tracking | File-based (`~/.claude-audit/<id>.offset`) | Not needed — state cleared after each POST |
-| Installation | `/plugin` marketplace | Copy file to plugins directory |
-| Config | Same env vars | Same env vars |
+| Session starts | `session.created` | POSTs a `session_start` record to `/api/ingest/session` |
+| Before each tool call | `tool.execute.before` | POSTs a `tool_use` record (`phase: "pre"`) to `/api/ingest/tool` with the tool name, category, and input args |
+| After each tool call | `tool.execute.after` | POSTs a `tool_use` record (`phase: "post"`) to `/api/ingest/tool` with the tool output |
+| Messages accumulate | `message.updated` / `message.part.updated` | Plugin accumulates messages and token usage in memory, keyed by session ID |
+| Session goes idle | `session.idle` | POSTs the full accumulated session summary to `/api/ingest` and clears in-memory state |
+| Errors | — | All fetch errors are silently swallowed — the plugin never blocks OpenCode |
 
 ---
 
-## API payload format
+## Tool categorization
+
+The plugin categorises every tool call the same way as the codex-audit `tool_audit.sh`:
+
+| Category | Tools |
+|---|---|
+| `code_execution` | `bash` |
+| `file_read` | `read` |
+| `file_write` | `write` |
+| `file_edit` | `edit`, `apply_patch` |
+| `file_search` | `glob`, `grep` |
+| `web` | `webfetch`, `websearch` |
+| `mcp` | any `mcp__<server>__<tool>` |
+| `agent` | `agent` |
+| `interaction` | `askuserquestion` |
+| `planning` | `exitplanmode` |
+
+---
+
+## API payload formats
+
+### Session start — `POST /api/ingest/session`
+
+```json
+{
+  "session_id": "abc123",
+  "developer_id": "alice",
+  "event_type": "session_start",
+  "cwd": "/home/alice/my-project",
+  "project_path": "/home/alice/my-project",
+  "project_name": "my-project"
+}
+```
+
+### Tool event — `POST /api/ingest/tool`
+
+```json
+{
+  "session_id": "abc123",
+  "developer_id": "alice",
+  "event_type": "tool_use",
+  "phase": "pre",
+  "tool_name": "bash",
+  "tool_category": "code_execution",
+  "tool_input": { "command": "npm test" },
+  "tool_output": null,
+  "cwd": "/home/alice/my-project",
+  "bash_command": "npm test"
+}
+```
+
+`phase` is `"pre"` before execution and `"post"` after. On `"post"`, `tool_output` contains the tool result.
+
+### Session idle summary — `POST /api/ingest`
 
 ```json
 {
   "session_id": "abc123",
   "developer_id": "alice",
   "event_type": "session.idle",
-  "project_path": "my-project",
+  "project_path": "/home/alice/my-project",
   "project_name": "my-project",
   "model": "claude-sonnet-4-6",
   "messages": [
@@ -116,3 +152,17 @@ The audit plugin is now active. Every `session.idle` event will POST session dat
   "raw_event": {}
 }
 ```
+
+---
+
+## Differences from the codex-audit plugin
+
+| | codex-audit | opencode-audit |
+|---|---|---|
+| Plugin format | Bash hook script | JavaScript/ES module |
+| Trigger | `PreToolUse` / `PostToolUse` / `SessionStart` hooks | `tool.execute.before` / `tool.execute.after` / `session.created` events |
+| Session summary trigger | `Stop` / `SubagentStop` | `session.idle` |
+| Data source | `stdin` JSON from the hook harness | In-memory event accumulation |
+| Offset tracking | File-based (`~/.claude-audit/<id>.offset`) | Not needed — state cleared after each POST |
+| Installation | `/plugin` marketplace | Copy file to plugins directory |
+| Env vars | Same (`AIGW_PROXY_URL`, `AIGW_PROXY_API_KEY`, `CLAUDE_AUDIT_DEVELOPER_ID`) | Same |
